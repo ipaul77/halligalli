@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>할리갈리 3D 모바일 카지노</title>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        * { -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; box-sizing: border-box; }
+        html, body { 
+            margin: 0; padding: 0; height: 100dvh; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            overflow: hidden; touch-action: manipulation; 
+            background: #0f1c2e; overscroll-behavior: none; 
+            transition: background 0.3s ease;
+        }
+        
+        body.red-zone { background: #3b0909; animation: bgAlert 1s infinite alternate; }
+        @keyframes bgAlert { 0% { background: #2c0404; } 100% { background: #4a0d0d; } }
+
+        .container { 
+            width: 100%; max-width: 600px; height: 100%; margin: 0 auto; 
+            display: flex; flex-direction: column; position: relative;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            background: linear-gradient(135deg, #1b2838 0%, #0d141e 100%);
+        }
+        .container.red-zone-container { background: transparent; }
+
+        .btn { padding: 15px; font-size: 1.1rem; border-radius: 12px; border: none; font-weight: bold; cursor: pointer; margin: 5px 0; transition: transform 0.1s, box-shadow 0.1s; }
+        .btn:active { transform: scale(0.95); }
+        .btn-primary { background: linear-gradient(to right, #f39c12, #d35400); color: #fff; width: 100%; box-shadow: 0 4px 15px rgba(211, 84, 0, 0.4); text-shadow: 1px 1px 2px rgba(0,0,0,0.3); }
+        .btn-action { background: linear-gradient(to bottom, #2980b9, #1c5980); color: white; width: 100%; margin-top: auto; height: 75px; font-size: 1.3rem; border-radius: 20px 20px 0 0; box-shadow: 0 -4px 15px rgba(0,0,0,0.3); }
+        .btn-action:disabled { background: #34495e; color: #7f8c8d; box-shadow: none; }
+        
+        input { width: 100%; padding: 18px; margin: 15px 0; font-size: 1.2rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); text-align: center; background: rgba(255,255,255,0.1); color: white; outline: none; box-shadow: inset 0 2px 5px rgba(0,0,0,0.2); }
+        input:focus { border-color: #f39c12; background: rgba(255,255,255,0.15); }
+
+        #screens { flex: 1; width: 100%; height: 100%; display: flex; flex-direction: column; position: relative; }
+        #screens > div { display: none; padding: 25px; flex: 1; flex-direction: column; width: 100%; }
+        #screens > div.active { display: flex; }
+
+        .glass-panel { 
+            background: rgba(255, 255, 255, 0.05); border-radius: 20px; 
+            border: 1px solid rgba(255, 255, 255, 0.1); 
+            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); 
+            padding: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.5); 
+        }
+
+        .play-area { 
+            flex: 1; position: relative; 
+            background-color: #1b5e20; 
+            background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(45deg, rgba(0,0,0,0.1) 25%, transparent 25%);
+            background-size: 5px 5px, 20px 20px; 
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.8);
+            border-radius: 15px; margin: 10px; border: 3px solid #5d4037;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        .play-area.red-zone-area { border-color: #c0392b; box-shadow: inset 0 0 80px rgba(192,57,43,0.6); }
+
+        .player-zone { 
+            position: absolute; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 12px; 
+            border: 2px solid transparent; color: white; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+            width: 110px; height: 195px; transition: all 0.3s;
+        }
+        
+        .zone-bottom { bottom: 15px; left: 50%; transform: translateX(-50%); z-index: 10; }
+
+        .active-turn { border-color: #f1c40f; animation: turnPulseGlow 1.5s infinite; }
+        @keyframes turnPulseGlow {
+            0% { box-shadow: 0 0 10px rgba(241, 196, 15, 0.5), inset 0 0 5px rgba(241, 196, 15, 0.2); }
+            50% { box-shadow: 0 0 25px rgba(241, 196, 15, 1), inset 0 0 15px rgba(241, 196, 15, 0.5); }
+            100% { box-shadow: 0 0 10px rgba(241, 196, 15, 0.5), inset 0 0 5px rgba(241, 196, 15, 0.2); }
+        }
+
+        .bell-wrapper { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 100; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
+        .bell-button { width: 30px; height: 18px; background: radial-gradient(circle at 30% 30%, #ff6b6b, #c0392b 60%, #8e1f13); border-radius: 15px 15px 0 0; margin-bottom: -2px; z-index: 3; box-shadow: inset 0 -3px 5px rgba(0,0,0,0.5); transition: transform 0.05s; }
+        .bell-dome { width: 110px; height: 60px; background: radial-gradient(ellipse at 50% 20%, #ffffff, #bdc3c7 50%, #7f8c8d 90%); border-radius: 55px 55px 0 0; z-index: 2; box-shadow: inset 0 -5px 15px rgba(0,0,0,0.6), 0 5px 15px rgba(0,0,0,0.5); }
+        .bell-base { width: 130px; height: 18px; background: linear-gradient(to bottom, #34495e, #1a252f); border-radius: 10px; z-index: 1; box-shadow: 0 10px 20px rgba(0,0,0,0.8); margin-top: -3px; }
+        
+        .bell-wrapper:active .bell-button { transform: translateY(6px); }
+        .bell-wrapper:active .bell-dome { transform: translateY(2px); box-shadow: inset 0 -5px 15px rgba(0,0,0,0.6), 0 2px 5px rgba(0,0,0,0.5); }
+
+        .card-container { width: 85px; height: 120px; perspective: 1000px; margin-top: 5px; position: relative; }
+        .card-inner { width: 100%; height: 100%; position: relative; transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform-style: preserve-3d; }
+        .card-inner.flipped { transform: rotateY(180deg) scale(1.1); box-shadow: 0 10px 20px rgba(0,0,0,0.6); }
+        .card-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 10px; box-shadow: 0 3px 10px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; background: white; border: 2px solid #ecf0f1; }
+        .card-back { background: repeating-linear-gradient(45deg, #8e44ad, #8e44ad 10px, #9b59b6 10px, #9b59b6 20px); transform: rotateY(0deg); border-color: #ecf0f1; }
+        .card-front { transform: rotateY(180deg); background: #fff; }
+
+        .out-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); color: #e74c3c; display: flex; justify-content: center; align-items: center; font-weight: 900; font-size: 1.8rem; border-radius: 10px; z-index: 10; text-shadow: 0 2px 5px #000; border: 2px solid #c0392b; }
+        .fruit-grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; width: 100%; height: 100%; padding: 4px; align-items: center; justify-items: center; gap: 0px; }
+
+        .acquire-anim {
+            position: fixed; transform: translate(-50%, -50%);
+            color: #2ecc71; font-size: 2.2rem; font-weight: 900;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.9), 0 0 10px rgba(255,255,255,0.7);
+            z-index: 2000; white-space: nowrap; pointer-events: none;
+            animation: floatUpAcquire 1.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        @keyframes floatUpAcquire {
+            0% { opacity: 0; transform: translate(-50%, 0) scale(0.5); }
+            20% { opacity: 1; transform: translate(-50%, -30px) scale(1.3); }
+            80% { opacity: 1; transform: translate(-50%, -60px) scale(1); }
+            100% { opacity: 0; transform: translate(-50%, -80px) scale(0.8); }
+        }
+
+        .zone-pulse { animation: pulseAcquire 0.6s ease-out; }
+        @keyframes pulseAcquire {
+            0% { filter: brightness(1); box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+            50% { filter: brightness(1.5); box-shadow: 0 0 30px 10px rgba(46, 204, 113, 0.9); }
+            100% { filter: brightness(1); box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        }
+
+        #game-timer-display {
+            position: absolute; top: 15px; left: 15px; z-index: 200;
+            background: rgba(0, 0, 0, 0.7); color: #f1c40f;
+            padding: 8px 15px; border-radius: 20px; font-weight: bold;
+            border: 2px solid #f1c40f; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            font-size: 1.1rem; letter-spacing: 1px; display: none; transition: all 0.3s;
+        }
+
+        .shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake { 10%, 90% { transform: translate3d(-2px, 0, 0); } 20%, 80% { transform: translate3d(4px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-8px, 0, 0); } 40%, 60% { transform: translate3d(8px, 0, 0); } }
+
+        #toast { position: fixed; top: 15%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); border: 2px solid #f39c12; color: #fff; padding: 12px 25px; border-radius: 30px; z-index: 1000; font-weight: bold; display: none; text-align: center; white-space: nowrap; box-shadow: 0 10px 20px rgba(0,0,0,0.7); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); }
+    </style>
+</head>
+<body>
+    <div id="toast">메시지</div>
+    <div class="container" id="main-container">
+        
+        <div id="screens">
+            <div id="screen-login" class="active" style="justify-content: center; align-items: center;">
+                <div class="glass-panel" style="width: 100%; text-align: center;">
+                    <h1 style="color: transparent; font-size: 3.5rem; margin: 0 0 20px 0; background: linear-gradient(to right, #f1c40f, #e74c3c); -webkit-background-clip: text; text-shadow: 2px 4px 10px rgba(0,0,0,0.4);">HALLI GALLI</h1>
+                    <input type="text" id="nickname" placeholder="닉네임 입력 (터치하세요)">
+                    <button class="btn btn-primary" onclick="joinLobby()">입장하기</button>
+                </div>
+            </div>
+
+            <div id="screen-lobby">
+                <h2 style="color: white; margin-top: 0; text-shadow: 1px 2px 5px #000;">대기실</h2>
+                <div id="room-list" class="glass-panel" style="flex:1; overflow-y: auto; margin-bottom: 15px; padding: 10px;"></div>
+                <button class="btn btn-primary" onclick="createRoom()">+ 방 만들기</button>
+            </div>
+
+            <div id="screen-room">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2 id="room-title" style="color: white; margin-top: 0; text-shadow: 1px 2px 5px #000;">방 제목</h2>
+                    <button class="btn" style="background: rgba(255,255,255,0.2); color:white; width: auto; padding: 8px 15px; font-size: 0.9rem;" onclick="leaveRoom()">방 나가기</button>
+                </div>
+                
+                <div id="player-list" class="glass-panel" style="flex:1; color: white; font-size: 1.2rem; line-height: 2; overflow-y: auto;"></div>
+                
+                <div id="host-controls" style="display: none; margin-top: 15px; flex-direction: column;">
+                    <div class="glass-panel" style="display: flex; flex-direction: column; padding: 15px; margin-bottom: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <span style="color: white; font-weight: bold;">봇 추가 인원:</span>
+                            <div style="display: flex; align-items: center;">
+                                <button class="btn" style="width: 40px; padding: 5px; background: rgba(255,255,255,0.2); color: white;" onclick="changeBotSettings('count', -1)">-</button>
+                                <span id="bot-count-display" style="color: #f1c40f; font-size: 1.3rem; width: 30px; text-align: center;">1</span>
+                                <button class="btn" style="width: 40px; padding: 5px; background: rgba(255,255,255,0.2); color: white;" onclick="changeBotSettings('count', 1)">+</button>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: white; font-weight: bold;">봇 난이도:</span>
+                            <div style="display: flex; align-items: center;">
+                                <button class="btn" style="width: 40px; padding: 5px; background: #e74c3c; color: white;" onclick="changeBotSettings('diff', -1)">-</button>
+                                <span id="bot-diff-display" style="color: #e74c3c; font-size: 1.3rem; width: 30px; text-align: center;">3</span>
+                                <button class="btn" style="width: 40px; padding: 5px; background: #e74c3c; color: white;" onclick="changeBotSettings('diff', 1)">+</button>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" style="margin-top: 10px;" onclick="addBot()">설정된 봇 추가</button>
+                    </div>
+                    <button class="btn" style="background: #2ecc71; color: white; font-size: 1.2rem;" onclick="startGame()">게임 시작</button>
+                </div>
+                <button id="btn-ready" class="btn btn-primary" style="margin-top: auto; height: 60px; font-size: 1.3rem;" onclick="toggleReady()" style="display: none;">준비하기</button>
+            </div>
+
+            <div id="screen-play" style="padding: 0;">
+                <div id="game-timer-display">🕒 03:00</div>
+
+                <div id="ingame-host-controls" style="position: absolute; top: 15px; right: 15px; z-index: 200; display: none;">
+                    <button class="btn" style="background: rgba(231, 76, 60, 0.8); color: white; padding: 8px 12px; font-size: 0.9rem;" onclick="stopGame()">강제 중지</button>
+                </div>
+
+                <div class="play-area" id="play-area">
+                    <div id="opponents-container">
+                        <div id="op-zone-0" class="player-zone" style="display:none;"></div>
+                        <div id="op-zone-1" class="player-zone" style="display:none;"></div>
+                        <div id="op-zone-2" class="player-zone" style="display:none;"></div>
+                        <div id="op-zone-3" class="player-zone" style="display:none;"></div>
+                        <div id="op-zone-4" class="player-zone" style="display:none;"></div>
+                    </div>
+                    
+                    <div class="bell-wrapper" onpointerdown="ringBell()">
+                        <div class="bell-button" id="bell-btn-top"></div>
+                        <div class="bell-dome"></div>
+                        <div class="bell-base"></div>
+                    </div>
+                    
+                    <div id="my-zone" class="player-zone zone-bottom"></div>
+                </div>
+                
+                <button id="btn-flip" class="btn btn-action" onpointerdown="flipCard()" disabled>내 차례 (터치하여 열기)</button>
+            </div>
+
+            <div id="screen-win" style="justify-content: center; align-items: center; text-align: center; background: rgba(0,0,0,0.85); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);">
+                <h1 style="font-size: 4.5rem; margin:0; background: linear-gradient(to right, #f1c40f, #e74c3c); -webkit-background-clip: text; color: transparent; text-shadow: 0 10px 20px rgba(0,0,0,0.8);">WINNER</h1>
+                <h2 id="winner-name" style="color: white; font-size: 2.5rem; margin: 20px 0 50px;">이름</h2>
+                <div style="display: flex; gap: 15px; width: 90%; justify-content: center;">
+                    <button class="btn btn-primary" style="flex: 1; font-size: 1.1rem; height: 60px;" onclick="backToRoom()">방으로 가기</button>
+                    <button class="btn" style="flex: 1; background: rgba(255,255,255,0.2); color: white; font-size: 1.1rem; height: 60px; box-shadow: 0 4px 15px rgba(0,0,0,0.4);" onclick="leaveRoom()">대기실로 가기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let myName = '', amIHost = false, amIOut = false;
+        let botConfig = { count: 1, diff: 3 };
+        let currentPlayerCount = 1; 
+
+        function showScreen(id) {
+            document.querySelectorAll('#screens > div').forEach(el => el.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg; toast.style.display = 'block';
+            setTimeout(() => toast.style.display = 'none', 2500);
+        }
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const unlockAudio = () => { 
+            if(audioCtx.state === 'suspended') audioCtx.resume(); 
+        };
+        ['touchstart', 'click', 'pointerdown'].forEach(evt => document.body.addEventListener(evt, unlockAudio, { once: true }));
+
+        function triggerHaptic(type) {
+            if (navigator.vibrate) {
+                if (type === 'light') navigator.vibrate(40);
+                if (type === 'heavy') navigator.vibrate([100, 50, 100]);
+            }
+        }
+
+        function playRewardSound() {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const freqs = [523.25, 659.25, 783.99, 1046.50]; 
+            let startTime = audioCtx.currentTime;
+            freqs.forEach((freq, i) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, startTime + (i * 0.08));
+                gain.gain.setValueAtTime(0, startTime + (i * 0.08));
+                gain.gain.linearRampToValueAtTime(0.5, startTime + (i * 0.08) + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.01, startTime + (i * 0.08) + 0.3);
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start(startTime + (i * 0.08));
+                osc.stop(startTime + (i * 0.08) + 0.3);
+            });
+        }
+
+        function playBellSound() {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc1 = audioCtx.createOscillator(); const osc2 = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc1.type = 'sine'; osc1.frequency.setValueAtTime(1400, audioCtx.currentTime);
+            osc2.type = 'triangle'; osc2.frequency.setValueAtTime(1800, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.8);
+            osc1.connect(gainNode); osc2.connect(gainNode); gainNode.connect(audioCtx.destination);
+            osc1.start(); osc2.start();
+            osc1.stop(audioCtx.currentTime + 0.8); osc2.stop(audioCtx.currentTime + 0.8);
+        }
+
+        function playFlipSound() {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.type = 'square'; osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function joinLobby() {
+            myName = document.getElementById('nickname').value || '플레이어';
+            showScreen('screen-lobby');
+        }
+
+        socket.on('roomList', (rooms) => {
+            const list = document.getElementById('room-list'); list.innerHTML = '';
+            rooms.forEach(r => {
+                list.innerHTML += `<div style="padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; color: white;" onclick="joinRoom('${r.id}')">
+                    <span style="font-weight: bold;">${r.name}</span><span style="color:#f39c12;">${r.playerCount}명 대기중</span>
+                </div>`;
+            });
+        });
+
+        socket.on('joinError', (msg) => { alert(msg); });
+
+        function createRoom() { socket.emit('createRoom', { nickname: myName, avatar: '🧑' }); }
+        function joinRoom(id) { socket.emit('joinRoom', { nickname: myName, avatar: '🧑', roomId: id }); }
+
+        socket.on('joinSuccess', (data) => {
+            amIHost = data.isHost;
+            document.getElementById('room-title').textContent = data.roomName;
+            
+            const hostControls = document.getElementById('host-controls');
+            if (hostControls) hostControls.style.display = amIHost ? 'flex' : 'none';
+            
+            const btnReady = document.getElementById('btn-ready');
+            if (btnReady) btnReady.style.display = amIHost ? 'none' : 'block';
+            
+            showScreen('screen-room');
+        });
+
+        function toggleReady() { 
+            socket.emit('toggleReady'); 
+            const btn = document.getElementById('btn-ready');
+            if (btn) {
+                btn.style.background = btn.style.background.includes('e74c3c') ? 'linear-gradient(to right, #f39c12, #d35400)' : '#e74c3c';
+                btn.textContent = btn.textContent === '준비하기' ? '준비 취소' : '준비하기';
+            }
+        }
+
+        function changeBotSettings(type, delta) {
+            botConfig[type] += delta;
+            if (type === 'count') {
+                if (botConfig.count < 1) botConfig.count = 1;
+                if (botConfig.count > 5) botConfig.count = 5;
+                const countDisplay = document.getElementById('bot-count-display');
+                if (countDisplay) countDisplay.textContent = botConfig.count;
+            } else if (type === 'diff') {
+                if (botConfig.diff < 1) botConfig.diff = 1;
+                if (botConfig.diff > 5) botConfig.diff = 5;
+                const diffDisplay = document.getElementById('bot-diff-display');
+                if (diffDisplay) diffDisplay.textContent = botConfig.diff;
+            }
+        }
+
+        function addBot() { 
+            if (currentPlayerCount >= 6) return showToast("방 인원이 꽉 찼습니다.");
+            socket.emit('addBots', { count: botConfig.count, difficulty: botConfig.diff }); 
+        }
+
+        function startGame() { socket.emit('startGame'); }
+        function stopGame() { if(confirm("게임을 중단하고 대기실로 돌아가시겠습니까?")) socket.emit('stopGame'); }
+
+        function backToRoom() {
+            showScreen('screen-room');
+            if (!amIHost) {
+                const btn = document.getElementById('btn-ready');
+                if (btn) {
+                    btn.style.background = '#e74c3c';
+                    btn.textContent = '준비하기';
+                }
+            }
+        }
+
+        function leaveRoom() {
+            socket.emit('leaveRoom');
+            amIHost = false;
+            showScreen('screen-lobby');
+            document.getElementById('host-controls').style.display = 'none';
+            document.getElementById('btn-ready').style.display = 'none';
+        }
+
+        socket.on('hostPromoted', () => {
+            amIHost = true;
+            showToast("방장이 되었습니다!");
+            document.getElementById('host-controls').style.display = 'flex';
+            document.getElementById('btn-ready').style.display = 'none';
+        });
+
+        function kickPlayer(targetId) {
+            if (confirm("해당 플레이어(또는 봇)를 정말 강퇴하시겠습니까?")) {
+                socket.emit('kickPlayer', targetId);
+            }
+        }
+
+        socket.on('kickedOut', () => {
+            alert("방장에 의해 강제 퇴장되었습니다.");
+            location.reload(); 
+        });
+
+        socket.on('updatePlayers', (players) => {
+            currentPlayerCount = players.length; 
+            const list = document.getElementById('player-list');
+            if (!list) return;
+            list.innerHTML = '';
+            players.forEach(p => {
+                let kickBtn = '';
+                if (amIHost && p.id !== socket.id) {
+                    kickBtn = `<button class="btn" style="padding: 2px 8px; margin-left: 10px; background: rgba(231, 76, 60, 0.8); color: white; font-size: 0.8rem; border-radius: 5px;" onclick="kickPlayer('${p.id}')">❌</button>`;
+                }
+                list.innerHTML += `
+                <div style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 5px 0; display: flex; justify-content: space-between; align-items: center;">
+                    <span>${p.avatar} ${p.name} ${p.isHost ? '👑' : ''} ${kickBtn}</span>
+                    <span>${p.isReady ? '✅' : '⏳'}</span>
+                </div>`;
+            });
+        });
+
+        socket.on('gameStarted', () => { 
+            amIOut = false; 
+            
+            document.body.classList.remove('red-zone');
+            document.getElementById('main-container').classList.remove('red-zone-container');
+            document.getElementById('play-area').classList.remove('red-zone-area');
+
+            const timerDisplay = document.getElementById('game-timer-display');
+            if (timerDisplay) timerDisplay.style.display = 'block';
+            
+            const ingameHostControls = document.getElementById('ingame-host-controls');
+            if (amIHost && ingameHostControls) ingameHostControls.style.display = 'block';
+            
+            showScreen('screen-play'); 
+        });
+        
+        socket.on('gameStopped', () => {
+            const ingameHostControls = document.getElementById('ingame-host-controls');
+            if (ingameHostControls) ingameHostControls.style.display = 'none';
+            
+            const timerDisplay = document.getElementById('game-timer-display');
+            if (timerDisplay) timerDisplay.style.display = 'none';
+
+            document.body.classList.remove('red-zone');
+            document.getElementById('main-container').classList.remove('red-zone-container');
+            document.getElementById('play-area').classList.remove('red-zone-area');
+            
+            showScreen('screen-room');
+            showToast("게임이 중단되었습니다.");
+        });
+
+        socket.on('updateTimer', (secondsLeft) => {
+            const min = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
+            const sec = String(secondsLeft % 60).padStart(2, '0');
+            const timerEl = document.getElementById('game-timer-display');
+            if (!timerEl) return;
+            
+            timerEl.textContent = `🕒 ${min}:${sec}`;
+            
+            if (secondsLeft <= 10) {
+                document.body.classList.add('red-zone');
+                document.getElementById('main-container').classList.add('red-zone-container');
+                document.getElementById('play-area').classList.add('red-zone-area');
+                
+                timerEl.style.color = '#e74c3c';
+                timerEl.style.borderColor = '#e74c3c';
+                if (secondsLeft % 2 === 0) timerEl.style.transform = 'scale(1.1)';
+                else timerEl.style.transform = 'scale(1)';
+            } else {
+                document.body.classList.remove('red-zone');
+                document.getElementById('main-container').classList.remove('red-zone-container');
+                document.getElementById('play-area').classList.remove('red-zone-area');
+
+                timerEl.style.color = '#f1c40f';
+                timerEl.style.borderColor = '#f1c40f';
+                timerEl.style.transform = 'scale(1)';
+            }
+        });
+
+        function flipCard() { 
+            const btn = document.getElementById('btn-flip');
+            if (btn && !btn.disabled) { 
+                socket.emit('flipCard'); 
+                btn.disabled = true; 
+            }
+        }
+        
+        function ringBell() { 
+            if (amIOut) { showToast("탈락하여 종을 칠 수 없습니다."); return; }
+            socket.emit('ringBell'); 
+        }
+
+        socket.on('actionSound', (type) => {
+            if (type === 'flip') { playFlipSound(); triggerHaptic('light'); }
+            if (type === 'bell') { playBellSound(); triggerHaptic('light'); }
+        });
+
+        socket.on('systemMessage', msg => showToast(msg));
+        
+        socket.on('penaltyApplied', (data) => {
+            if (data && data.targetId === socket.id) {
+                triggerHaptic('heavy');
+                const playArea = document.getElementById('play-area');
+                if (playArea) {
+                    playArea.classList.add('shake');
+                    setTimeout(() => playArea.classList.remove('shake'), 400);
+                }
+            }
+        });
+
+        socket.on('cardsWon', (data) => {
+            playRewardSound();
+            
+            const zones = ['my-zone', 'op-zone-0', 'op-zone-1', 'op-zone-2', 'op-zone-3', 'op-zone-4'];
+            for (let z of zones) {
+                const el = document.getElementById(z);
+                if (el && el.dataset.playerId === data.targetId) {
+                    const rect = el.getBoundingClientRect();
+                    
+                    const anim = document.createElement('div');
+                    anim.className = 'acquire-anim';
+                    anim.textContent = `+${data.count} 획득!`;
+                    anim.style.left = `${rect.left + rect.width / 2}px`;
+                    anim.style.top = `${rect.top}px`;
+                    document.body.appendChild(anim);
+                    
+                    el.classList.add('zone-pulse');
+                    setTimeout(() => el.classList.remove('zone-pulse'), 600);
+
+                    confetti({
+                        particleCount: 35,
+                        spread: 60,
+                        origin: {
+                            x: (rect.left + rect.width / 2) / window.innerWidth,
+                            y: rect.top / window.innerHeight
+                        },
+                        colors: ['#2ecc71', '#f1c40f', '#ffffff'],
+                        zIndex: 2000
+                    });
+
+                    setTimeout(() => anim.remove(), 1500);
+                    break;
+                }
+            }
+        });
+
+        socket.on('penaltyCardReceived', (data) => {
+            playFlipSound(); 
+            
+            const zones = ['my-zone', 'op-zone-0', 'op-zone-1', 'op-zone-2', 'op-zone-3', 'op-zone-4'];
+            for (let z of zones) {
+                const el = document.getElementById(z);
+                if (el && el.dataset.playerId === data.targetId) {
+                    const rect = el.getBoundingClientRect();
+                    
+                    const anim = document.createElement('div');
+                    anim.className = 'acquire-anim';
+                    anim.textContent = `+${data.count} 획득`;
+                    anim.style.left = `${rect.left + rect.width / 2}px`;
+                    anim.style.top = `${rect.top}px`;
+                    anim.style.color = '#f1c40f'; 
+                    document.body.appendChild(anim);
+                    
+                    el.classList.add('zone-pulse');
+                    setTimeout(() => el.classList.remove('zone-pulse'), 600);
+
+                    setTimeout(() => anim.remove(), 1500);
+                    break;
+                }
+            }
+        });
+
+        function getFruitGridHTML(fruit, count) {
+            let layout = '';
+            if (count === 1) layout = `<div style="grid-column: 1/3; grid-row: 1/4; font-size: 3rem; display:flex; align-items:center; justify-content:center;">${fruit}</div>`;
+            else if (count === 2) layout = `<div style="grid-column: 1/3; grid-row: 1; font-size: 2.2rem;">${fruit}</div><div style="grid-column: 1/3; grid-row: 3; font-size: 2.2rem;">${fruit}</div>`;
+            else if (count === 3) layout = `<div style="grid-column: 1/3; grid-row: 1; font-size: 1.8rem;">${fruit}</div><div style="grid-column: 1/3; grid-row: 2; font-size: 1.8rem;">${fruit}</div><div style="grid-column: 1/3; grid-row: 3; font-size: 1.8rem;">${fruit}</div>`;
+            else if (count === 4) layout = `<div style="grid-row: 1; font-size: 1.8rem;">${fruit}</div><div style="grid-row: 1; font-size: 1.8rem;">${fruit}</div><div style="grid-row: 3; font-size: 1.8rem;">${fruit}</div><div style="grid-row: 3; font-size: 1.8rem;">${fruit}</div>`;
+            else if (count === 5) layout = `<div style="grid-row: 1; font-size: 1.6rem;">${fruit}</div><div style="grid-row: 1; font-size: 1.6rem;">${fruit}</div><div style="grid-column: 1/3; grid-row: 2; font-size: 1.6rem;">${fruit}</div><div style="grid-row: 3; font-size: 1.6rem;">${fruit}</div><div style="grid-row: 3; font-size: 1.6rem;">${fruit}</div>`;
+            return `<div class="fruit-grid">${layout}</div>`;
+        }
+
+        // 💡 1명~5명의 상대방을 원형(Arc)으로 배치하기 위한 수학적 좌표 맵
+        // translate(-50%, -50%)를 적용하여 중심점 기준으로 정확하게 원형 곡선을 그립니다.
+        const posMap = {
+            1: [ {top:'20%', left:'50%', transform:'translate(-50%, -50%) scale(0.9)'} ],
+            2: [ 
+                {top:'30%', left:'22%', transform:'translate(-50%, -50%) scale(0.85) rotate(10deg)'}, 
+                {top:'30%', left:'78%', transform:'translate(-50%, -50%) scale(0.85) rotate(-10deg)'} 
+            ],
+            3: [ 
+                {top:'50%', left:'16%', transform:'translate(-50%, -50%) scale(0.8) rotate(15deg)'}, 
+                {top:'15%', left:'50%', transform:'translate(-50%, -50%) scale(0.8)'}, 
+                {top:'50%', left:'84%', transform:'translate(-50%, -50%) scale(0.8) rotate(-15deg)'} 
+            ],
+            4: [
+                {top:'60%', left:'16%', transform:'translate(-50%, -50%) scale(0.75) rotate(20deg)'},
+                {top:'25%', left:'25%', transform:'translate(-50%, -50%) scale(0.75) rotate(10deg)'},
+                {top:'25%', left:'75%', transform:'translate(-50%, -50%) scale(0.75) rotate(-10deg)'},
+                {top:'60%', left:'84%', transform:'translate(-50%, -50%) scale(0.75) rotate(-20deg)'}
+            ],
+            5: [
+                {top:'65%', left:'18%', transform:'translate(-50%, -50%) scale(0.7) rotate(25deg)'},
+                {top:'32%', left:'15%', transform:'translate(-50%, -50%) scale(0.7) rotate(12deg)'},
+                {top:'15%', left:'50%', transform:'translate(-50%, -50%) scale(0.7)'},
+                {top:'32%', left:'85%', transform:'translate(-50%, -50%) scale(0.7) rotate(-12deg)'},
+                {top:'65%', left:'82%', transform:'translate(-50%, -50%) scale(0.7) rotate(-25deg)'}
+            ]
+        };
+
+        socket.on('updateGame', (state) => {
+            const btnFlip = document.getElementById('btn-flip');
+            const isMyTurn = (state.currentTurnId === socket.id && state.myHandCount > 0);
+            
+            if (btnFlip) {
+                btnFlip.disabled = !isMyTurn;
+                btnFlip.textContent = isMyTurn ? '👆 내 차례 (터치하여 열기)' : (state.myHandCount === 0 ? '카드가 없습니다' : '상대방 턴 대기중...');
+                btnFlip.style.background = isMyTurn ? 'linear-gradient(to right, #f39c12, #d35400)' : '#34495e';
+            }
+
+            const meIdx = state.playersInfo.findIndex(p => p.id === socket.id);
+            amIOut = (state.playersInfo[meIdx].cardCount === 0 && !state.playersInfo[meIdx].activeCard);
+
+            const ops = [...state.playersInfo.slice(meIdx + 1), ...state.playersInfo.slice(0, meIdx)];
+            const opCount = ops.length;
+            const positions = posMap[opCount] || [];
+
+            // 상대방 패널의 둥근 배치 적용
+            for (let i = 0; i < 5; i++) {
+                const zoneEl = document.getElementById(`op-zone-${i}`);
+                if (!zoneEl) continue;
+
+                if (i < opCount) {
+                    zoneEl.style.display = 'flex';
+                    const pos = positions[i];
+                    zoneEl.style.top = pos.top || 'auto';
+                    zoneEl.style.left = pos.left || 'auto';
+                    zoneEl.style.transform = pos.transform || 'none';
+                    renderZone(`op-zone-${i}`, ops[i], state.currentTurnId);
+                } else {
+                    zoneEl.style.display = 'none';
+                }
+            }
+
+            renderZone('my-zone', state.playersInfo[meIdx], state.currentTurnId);
+        });
+
+        function renderZone(zoneId, p, currentTurnId) {
+            const el = document.getElementById(zoneId);
+            if(!el) return;
+
+            const isPlayerOut = (p.cardCount === 0 && !p.activeCard);
+            const flippedClass = p.activeCard ? 'flipped' : '';
+            const frontContent = p.activeCard ? getFruitGridHTML(p.activeCard.fruit, p.activeCard.count) : '';
+            const outContent = isPlayerOut ? `<div class="out-overlay">OUT</div>` : '';
+            
+            const cardHtml = `
+            <div class="card-container">
+                <div class="card-inner ${flippedClass}">
+                    <div class="card-face card-back"></div>
+                    <div class="card-face card-front">${frontContent}</div>
+                </div>
+                ${outContent}
+            </div>`;
+            
+            el.dataset.playerId = p.id;
+            
+            if(currentTurnId === p.id) {
+                el.classList.add('active-turn');
+                el.style.borderColor = '#f1c40f';
+            } else {
+                el.classList.remove('active-turn');
+                el.style.borderColor = 'transparent';
+            }
+
+            el.innerHTML = `
+                <div style="height: 38px; display: flex; flex-direction: column; justify-content: center; font-size: 0.85rem; font-weight:bold; margin-bottom: 2px;">
+                    <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 90px;">${p.name}</div>
+                    <div style="color:#f1c40f;">🃏 ${p.cardCount}장</div>
+                </div>
+                ${cardHtml}
+            `;
+        }
+
+        socket.on('gameOver', (winner) => {
+            const winnerNameEl = document.getElementById('winner-name');
+            if (winnerNameEl) winnerNameEl.textContent = winner;
+            
+            document.body.classList.remove('red-zone');
+            document.getElementById('main-container').classList.remove('red-zone-container');
+            document.getElementById('play-area').classList.remove('red-zone-area');
+
+            showScreen('screen-win');
+            
+            const ingameHostControls = document.getElementById('ingame-host-controls');
+            if (ingameHostControls) ingameHostControls.style.display = 'none';
+            
+            const timerDisplay = document.getElementById('game-timer-display');
+            if (timerDisplay) timerDisplay.style.display = 'none';
+            
+            playBellSound();
+            setTimeout(playBellSound, 300);
+            confetti({ particleCount: 200, spread: 120, origin: { y: 0.5 }, colors: ['#f1c40f', '#e74c3c', '#2ecc71', '#3498db'] });
+        });
+    </script>
+</body>
+</html>
