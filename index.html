@@ -181,8 +181,8 @@
             <div id="screen-play" style="padding: 0;">
                 <div id="game-timer-display">🕒 03:00</div>
 
-                <div id="ingame-host-controls" style="position: absolute; top: 15px; right: 15px; z-index: 200; display: none;">
-                    <button class="btn" style="background: rgba(231, 76, 60, 0.8); color: white; padding: 8px 12px; font-size: 0.9rem;" onclick="stopGame()">강제 중지</button>
+                <div id="ingame-controls" style="position: absolute; top: 15px; right: 15px; z-index: 200; display: none;">
+                    <button class="btn" style="background: rgba(231, 76, 60, 0.8); color: white; padding: 8px 12px; font-size: 0.9rem;" onclick="leaveGame()">나가기</button>
                 </div>
 
                 <div class="play-area" id="play-area">
@@ -319,7 +319,6 @@
             showScreen('screen-room');
         });
 
-        // 💡 오작동하던 클라이언트 수동 변경 코드를 제거하고 서버 요청만 전달합니다.
         function toggleReady() { 
             socket.emit('toggleReady'); 
         }
@@ -345,7 +344,12 @@
         }
 
         function startGame() { socket.emit('startGame'); }
-        function stopGame() { if(confirm("게임을 중단하고 대기실로 돌아가시겠습니까?")) socket.emit('stopGame'); }
+        
+        function leaveGame() { 
+            if(confirm("게임을 중단하고 방에서 나가시겠습니까?")) {
+                leaveRoom();
+            } 
+        }
 
         function backToRoom() {
             showScreen('screen-room');
@@ -358,12 +362,16 @@
             document.getElementById('host-controls').style.display = 'none';
             const btnReady = document.getElementById('btn-ready');
             if (btnReady) btnReady.style.display = 'none';
+            
+            const ingameControls = document.getElementById('ingame-controls');
+            if (ingameControls) ingameControls.style.display = 'none';
         }
 
         socket.on('hostPromoted', () => {
             amIHost = true;
             showToast("방장이 되었습니다!");
-            document.getElementById('host-controls').style.display = 'flex';
+            if(document.getElementById('host-controls')) 
+                document.getElementById('host-controls').style.display = 'flex';
             const btnReady = document.getElementById('btn-ready');
             if (btnReady) btnReady.style.display = 'none';
         });
@@ -385,7 +393,6 @@
             if (!list) return;
             list.innerHTML = '';
             
-            // 💡 서버에서 받아온 정보를 토대로 준비 버튼 상태를 완벽히 동기화합니다.
             const me = players.find(p => p.id === socket.id);
             if (me && !me.isHost) {
                 const btnReady = document.getElementById('btn-ready');
@@ -424,15 +431,16 @@
             const timerDisplay = document.getElementById('game-timer-display');
             if (timerDisplay) timerDisplay.style.display = 'block';
             
-            const ingameHostControls = document.getElementById('ingame-host-controls');
-            if (amIHost && ingameHostControls) ingameHostControls.style.display = 'block';
+            // 모든 플레이어에게 나가기 버튼 노출
+            const ingameControls = document.getElementById('ingame-controls');
+            if (ingameControls) ingameControls.style.display = 'block';
             
             showScreen('screen-play'); 
         });
         
         socket.on('gameStopped', () => {
-            const ingameHostControls = document.getElementById('ingame-host-controls');
-            if (ingameHostControls) ingameHostControls.style.display = 'none';
+            const ingameControls = document.getElementById('ingame-controls');
+            if (ingameControls) ingameControls.style.display = 'none';
             
             const timerDisplay = document.getElementById('game-timer-display');
             if (timerDisplay) timerDisplay.style.display = 'none';
@@ -685,8 +693,8 @@
 
             showScreen('screen-win');
             
-            const ingameHostControls = document.getElementById('ingame-host-controls');
-            if (ingameHostControls) ingameHostControls.style.display = 'none';
+            const ingameControls = document.getElementById('ingame-controls');
+            if (ingameControls) ingameControls.style.display = 'none';
             
             const timerDisplay = document.getElementById('game-timer-display');
             if (timerDisplay) timerDisplay.style.display = 'none';

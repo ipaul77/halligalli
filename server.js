@@ -22,7 +22,7 @@ function initRoom(roomName) {
         stateVersion: 0, turnId: 0,
         timeRemaining: 180, timerInterval: null,
         maxPlayers: 6,
-        lastSuccessTime: 0 // 💡 누군가 정답을 맞춘 시간을 기록
+        lastSuccessTime: 0 
     };
 }
 
@@ -101,10 +101,18 @@ function advanceTurn(roomId) {
     
     let nextIndex = room.currentTurnIndex;
     let attempts = 0;
+    
+    // 다음 턴을 찾되, 무한 루프(교착 상태)를 방지
     do {
         nextIndex = (nextIndex + 1) % room.players.length;
         attempts++;
     } while (room.players[nextIndex].hand.length === 0 && attempts < room.players.length);
+
+    // 💡 아무도 낼 카드가 없는 무한 교착 상태 발생 시 게임 종료
+    if (attempts >= room.players.length) {
+        endGame(roomId);
+        return;
+    }
 
     room.currentTurnIndex = nextIndex;
     playCurrentTurn(roomId);
@@ -170,10 +178,8 @@ function executeRingBell(roomId, playerId) {
     const isCorrect = checkBellCondition(room);
     const hasActiveCards = room.players.some(p => p.activeCard !== null);
 
-    // 💡 1. 바닥에 카드가 아예 없을 때는 오발동이므로 무시 (페널티 없음)
     if (!hasActiveCards) return;
 
-    // 💡 2. 누군가 정답을 맞춘 직후 1.5초 이내의 오답은 '네트워크 지연으로 늦게 누른 것'으로 간주하여 무시 (억울한 페널티 삭제)
     if (!isCorrect && room.lastSuccessTime && (Date.now() - room.lastSuccessTime < 1500)) {
         return;
     }
@@ -181,7 +187,7 @@ function executeRingBell(roomId, playerId) {
     io.to(roomId).emit('actionSound', 'bell');
 
     if (isCorrect) {
-        room.lastSuccessTime = Date.now(); // 정답 시간 기록
+        room.lastSuccessTime = Date.now(); 
         
         let wonCards = [...room.tableCards];
         room.tableCards = [];
@@ -191,13 +197,12 @@ function executeRingBell(roomId, playerId) {
         });
         
         ringer.hand.unshift(...wonCards);
-        io.to(roomId).emit('systemMessage', `🔔 딩동댕! ${ringer.name}님이 카드를 모두 가져갑니다!`);
+        io.to(roomId).emit('systemMessage', `🔔 딩동댕! ${ringer.name}님이 카드를 가져갑니다!`);
         io.to(roomId).emit('cardsWon', { targetId: ringer.id, count: wonCards.length });
         
         room.currentTurnIndex = room.players.indexOf(ringer);
         playCurrentTurn(roomId); 
     } else {
-        // 이 로직은 오직 '5개가 확실히 아닌 상황에서 능동적으로 잘못 친 사람'에게만 적용됩니다.
         let penaltyCount = 0;
         room.players.forEach(p => {
             const targetIsOut = (p.hand.length === 0 && !p.activeCard);
@@ -221,6 +226,7 @@ function executeRingBell(roomId, playerId) {
 
 function endGame(roomId) {
     const room = rooms[roomId];
+    if(!room) return;
     room.isGameRunning = false;
     
     if (room.timerInterval) {
@@ -236,15 +242,69 @@ function endGame(roomId) {
     broadcastRoomList();
 }
 
+// 💡 유저 퇴장 로직을 통합하여 봇 예외 처리 및 진행 안정성 강화
+function handlePlayerLeave(socket, roomId) {
+    if (!roomId || !rooms[roomId]) return;
+    const room = rooms[roomId];
+
+    const pIdx = room.players.findIndex(p => p.id === socket.id);
+    if (pIdx !== -1) {
+        const leavingPlayer = room.players[pIdx];
+        const wasHost = leavingPlayer.isHost;
+        
+        room.players.splice(pIdx, 1);
+        socket.leave(roomId);
+        socket.roomId = null; 
+
+        const realPlayers = room.players.filter(p => !p.isBot);
+
+        // 남은 인원이 없거나 봇만 남았다면 즉시 방 삭제
+        if (realPlayers.length === 0) {
+            if (room.timerInterval) clearInterval(room.timerInterval);
+            delete rooms[roomId]; 
+            broadcastRoomList();
+            return;
+        }
+
+        if (wasHost && realPlayers.length > 0) {
+            realPlayers[0].isHost = true;
+            realPlayers[0].isReady = true;
+            io.to(realPlayers[0].id).emit('hostPromoted');
+        }
+
+        if (room.isGameRunning) {
+            const alivePlayers = room.players.filter(p => p.hand.length > 0 || p.activeCard);
+            if (alivePlayers.length <= 1) {
+                endGame(roomId);
+            } else {
+                // 게임 진행 중 남은 실제 플레이어가 있다면 턴 보정 후 이어나감
+                if (room.currentTurnIndex === pIdx) {
+                    room.currentTurnIndex = room.currentTurnIndex % room.players.length;
+                    playCurrentTurn(roomId);
+                } else if (room.currentTurnIndex > pIdx) {
+                    room.currentTurnIndex--;
+                    broadcastGameState(roomId);
+                } else {
+                    broadcastGameState(roomId);
+                }
+            }
+        } else {
+            io.to(roomId).emit('updatePlayers', room.players);
+        }
+        broadcastRoomList();
+    }
+}
+
 io.on('connection', (socket) => {
     socket.join('lobby');
     broadcastRoomList();
 
     socket.on('createRoom', (data) => {
+        const safeNickname = (data.nickname || '플레이어').trim().substring(0, 10);
         const roomId = 'room_' + Math.random().toString(36).substr(2, 6);
-        rooms[roomId] = initRoom(data.roomName || `${data.nickname}의 테이블`);
+        rooms[roomId] = initRoom(data.roomName || `${safeNickname}의 테이블`);
         socket.leave('lobby'); socket.join(roomId); socket.roomId = roomId;
-        rooms[roomId].players.push({ id: socket.id, name: data.nickname, avatar: data.avatar, hand: [], activeCard: null, isBot: false, isHost: true, isReady: true });
+        rooms[roomId].players.push({ id: socket.id, name: safeNickname, avatar: data.avatar, hand: [], activeCard: null, isBot: false, isHost: true, isReady: true });
         socket.emit('joinSuccess', { isHost: true, roomName: rooms[roomId].name });
         io.to(roomId).emit('updatePlayers', rooms[roomId].players);
         broadcastRoomList(); 
@@ -263,8 +323,9 @@ io.on('connection', (socket) => {
             }
         }
 
+        const safeNickname = (data.nickname || '플레이어').trim().substring(0, 10);
         socket.leave('lobby'); socket.join(data.roomId); socket.roomId = data.roomId;
-        room.players.push({ id: socket.id, name: data.nickname, avatar: data.avatar, hand: [], activeCard: null, isBot: false, isHost: false, isReady: false });
+        room.players.push({ id: socket.id, name: safeNickname, avatar: data.avatar, hand: [], activeCard: null, isBot: false, isHost: false, isReady: false });
         socket.emit('joinSuccess', { isHost: false, roomName: room.name });
         io.to(data.roomId).emit('updatePlayers', room.players);
         broadcastRoomList(); 
@@ -323,6 +384,14 @@ io.on('connection', (socket) => {
             
             room.players.splice(targetIndex, 1);
             
+            const realPlayers = room.players.filter(p => !p.isBot);
+            if (realPlayers.length === 0) {
+                if (room.timerInterval) clearInterval(room.timerInterval);
+                delete rooms[roomId]; 
+                broadcastRoomList();
+                return;
+            }
+            
             if (room.isGameRunning) {
                 const alivePlayers = room.players.filter(p => p.hand.length > 0 || p.activeCard);
                 if (alivePlayers.length <= 1) {
@@ -335,9 +404,9 @@ io.on('connection', (socket) => {
                         broadcastGameState(roomId);
                     }
                 }
+            } else {
+                io.to(roomId).emit('updatePlayers', room.players);
             }
-            
-            io.to(roomId).emit('updatePlayers', room.players);
             broadcastRoomList();
         }
     });
@@ -370,79 +439,22 @@ io.on('connection', (socket) => {
         broadcastRoomList(); 
     });
 
-    socket.on('stopGame', () => {
-        const room = rooms[socket.roomId];
-        if (room && room.isGameRunning) {
-            const host = room.players.find(p => p.id === socket.id);
-            if (host && host.isHost) {
-                room.isGameRunning = false;
-                if (room.timerInterval) {
-                    clearInterval(room.timerInterval);
-                    room.timerInterval = null;
-                }
-                room.players.forEach(p => { p.hand = []; p.activeCard = null; p.isReady = p.isHost || p.isBot; });
-                io.to(socket.roomId).emit('gameStopped');
-                io.to(socket.roomId).emit('updatePlayers', room.players);
-                broadcastRoomList();
-            }
-        }
-    });
-
     socket.on('leaveRoom', () => {
-        const roomId = socket.roomId;
-        if (!roomId || !rooms[roomId]) return;
-        const room = rooms[roomId];
-
-        const pIdx = room.players.findIndex(p => p.id === socket.id);
-        if (pIdx !== -1) {
-            const wasHost = room.players[pIdx].isHost;
-            room.players.splice(pIdx, 1);
-            socket.leave(roomId);
-            socket.roomId = null; 
-
-            const realPlayers = room.players.filter(p => !p.isBot);
-            if (realPlayers.length === 0) {
-                if (room.timerInterval) clearInterval(room.timerInterval);
-                delete rooms[roomId]; 
-            } else {
-                if (wasHost) {
-                    realPlayers[0].isHost = true;
-                    realPlayers[0].isReady = true;
-                    io.to(realPlayers[0].id).emit('hostPromoted');
-                }
-                io.to(roomId).emit('updatePlayers', room.players);
-            }
-            broadcastRoomList();
-        }
+        handlePlayerLeave(socket, socket.roomId);
     });
 
     socket.on('flipCard', () => executeFlipCard(socket.roomId, socket.id));
     socket.on('ringBell', () => executeRingBell(socket.roomId, socket.id));
     
     socket.on('disconnect', () => {
+        let targetRoomId = null;
         for (const roomId in rooms) {
-            const room = rooms[roomId];
-            const pIdx = room.players.findIndex(p => p.id === socket.id);
-            if (pIdx !== -1) {
-                const wasHost = room.players[pIdx].isHost;
-                room.players.splice(pIdx, 1);
-                
-                const realPlayers = room.players.filter(p => !p.isBot);
-                if (realPlayers.length === 0) {
-                    if (room.timerInterval) clearInterval(room.timerInterval);
-                    delete rooms[roomId];
-                } else {
-                    if (wasHost) {
-                        realPlayers[0].isHost = true;
-                        realPlayers[0].isReady = true;
-                        io.to(realPlayers[0].id).emit('hostPromoted');
-                    }
-                    io.to(roomId).emit('updatePlayers', room.players);
-                }
-                broadcastRoomList();
+            if (rooms[roomId].players.some(p => p.id === socket.id)) {
+                targetRoomId = roomId;
                 break;
             }
         }
+        if (targetRoomId) handlePlayerLeave(socket, targetRoomId);
     });
 });
 
