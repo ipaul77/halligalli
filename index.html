@@ -203,7 +203,7 @@
                     <div id="my-zone" class="player-zone zone-bottom"></div>
                 </div>
                 
-                <button id="btn-flip" class="btn btn-action" onpointerdown="flipCard()" disabled>내 차례 (터치하여 열기)</button>
+                <button id="btn-flip" class="btn btn-action" onpointerdown="flipCard()" disabled>위로 스와이프 또는 터치하여 열기</button>
             </div>
 
             <div id="screen-win" style="justify-content: center; align-items: center; text-align: center; background: rgba(0,0,0,0.85); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);">
@@ -224,6 +224,25 @@
         let botConfig = { count: 1, diff: 3 };
         let currentPlayerCount = 1; 
 
+        // 💡 [개선] 터치 스와이프 로직 추가 (화면 하단을 위로 쓸어올리면 카드 플립)
+        let touchStartY = 0;
+        document.addEventListener('touchstart', e => {
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+        
+        document.addEventListener('touchend', e => {
+            if(!touchStartY) return;
+            let touchEndY = e.changedTouches[0].clientY;
+            if (touchStartY - touchEndY > 50) { 
+                const btn = document.getElementById('btn-flip');
+                const screenPlay = document.getElementById('screen-play');
+                if (btn && !btn.disabled && screenPlay.classList.contains('active')) {
+                    flipCard();
+                }
+            }
+            touchStartY = 0;
+        });
+
         function showScreen(id) {
             document.querySelectorAll('#screens > div').forEach(el => el.classList.remove('active'));
             document.getElementById(id).classList.add('active');
@@ -231,7 +250,8 @@
 
         function showToast(msg) {
             const toast = document.getElementById('toast');
-            toast.textContent = msg; toast.style.display = 'block';
+            toast.innerHTML = msg; // 이모티콘 등 태그 적용 위해 innerHTML 사용
+            toast.style.display = 'block';
             setTimeout(() => toast.style.display = 'none', 2500);
         }
 
@@ -319,9 +339,7 @@
             showScreen('screen-room');
         });
 
-        function toggleReady() { 
-            socket.emit('toggleReady'); 
-        }
+        function toggleReady() { socket.emit('toggleReady'); }
 
         function changeBotSettings(type, delta) {
             botConfig[type] += delta;
@@ -351,9 +369,7 @@
             } 
         }
 
-        function backToRoom() {
-            showScreen('screen-room');
-        }
+        function backToRoom() { showScreen('screen-room'); }
 
         function leaveRoom() {
             socket.emit('leaveRoom');
@@ -382,10 +398,7 @@
             }
         }
 
-        socket.on('kickedOut', () => {
-            alert("방장에 의해 강제 퇴장되었습니다.");
-            location.reload(); 
-        });
+        socket.on('kickedOut', () => { alert("방장에 의해 강제 퇴장되었습니다."); location.reload(); });
 
         socket.on('updatePlayers', (players) => {
             currentPlayerCount = players.length; 
@@ -423,7 +436,6 @@
 
         socket.on('gameStarted', () => { 
             amIOut = false; 
-            
             document.body.classList.remove('red-zone');
             document.getElementById('main-container').classList.remove('red-zone-container');
             document.getElementById('play-area').classList.remove('red-zone-area');
@@ -431,7 +443,6 @@
             const timerDisplay = document.getElementById('game-timer-display');
             if (timerDisplay) timerDisplay.style.display = 'block';
             
-            // 모든 플레이어에게 나가기 버튼 노출
             const ingameControls = document.getElementById('ingame-controls');
             if (ingameControls) ingameControls.style.display = 'block';
             
@@ -521,9 +532,12 @@
                 if (el && el.dataset.playerId === data.targetId) {
                     const rect = el.getBoundingClientRect();
                     
+                    // 💡 [개선] 콤보에 따른 텍스트 강조 및 이펙트 강화
+                    const comboText = data.combo > 1 ? `<br><span style="color:#e74c3c;">${data.combo} COMBO! 🔥</span>` : '';
+                    
                     const anim = document.createElement('div');
                     anim.className = 'acquire-anim';
-                    anim.textContent = `+${data.count} 획득!`;
+                    anim.innerHTML = `+${data.count} 획득!${comboText}`;
                     anim.style.left = `${rect.left + rect.width / 2}px`;
                     anim.style.top = `${rect.top}px`;
                     document.body.appendChild(anim);
@@ -531,14 +545,18 @@
                     el.classList.add('zone-pulse');
                     setTimeout(() => el.classList.remove('zone-pulse'), 600);
 
+                    // 콤보가 높을수록 폭죽 파티클 증가
+                    const pCount = data.combo > 1 ? 80 : 35;
+                    const spreadVal = data.combo > 1 ? 100 : 60;
+                    
                     confetti({
-                        particleCount: 35,
-                        spread: 60,
+                        particleCount: pCount,
+                        spread: spreadVal,
                         origin: {
                             x: (rect.left + rect.width / 2) / window.innerWidth,
                             y: rect.top / window.innerHeight
                         },
-                        colors: ['#2ecc71', '#f1c40f', '#ffffff'],
+                        colors: ['#2ecc71', '#f1c40f', '#ffffff', '#e74c3c'],
                         zIndex: 2000
                     });
 
@@ -616,7 +634,7 @@
             
             if (btnFlip) {
                 btnFlip.disabled = !isMyTurn;
-                btnFlip.textContent = isMyTurn ? '👆 내 차례 (터치하여 열기)' : (state.myHandCount === 0 ? '카드를 소진했습니다' : '상대방 턴 대기중...');
+                btnFlip.textContent = isMyTurn ? '👆 스와이프 또는 터치하여 열기' : (state.myHandCount === 0 ? '카드를 소진했습니다' : '상대방 턴 대기중...');
                 btnFlip.style.background = isMyTurn ? 'linear-gradient(to right, #f39c12, #d35400)' : '#34495e';
             }
 

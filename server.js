@@ -15,6 +15,10 @@ const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } 
 const rooms = {};
 const botAvatars = ['🤖', '👽', '👻', '🤡', '🎃'];
 
+// 💡 [개선] 봇 대사 추가 (승리/실패 상황별)
+const botWinMsgs = ['계산 완료! 내가 가져간다. ⚡', '너무 느립니다, 휴먼. 🤖', '승률이 상승했습니다. 📈'];
+const botFailMsgs = ['시스템 오류 발생! 💦', '계산 착오... 페널티 적용 📉', '버그인가? 🥺'];
+
 function initRoom(roomName) {
     return {
         name: roomName, players: [], deck: [], currentTurnIndex: 0,
@@ -102,13 +106,11 @@ function advanceTurn(roomId) {
     let nextIndex = room.currentTurnIndex;
     let attempts = 0;
     
-    // 다음 턴을 찾되, 무한 루프(교착 상태)를 방지
     do {
         nextIndex = (nextIndex + 1) % room.players.length;
         attempts++;
     } while (room.players[nextIndex].hand.length === 0 && attempts < room.players.length);
 
-    // 💡 아무도 낼 카드가 없는 무한 교착 상태 발생 시 게임 종료
     if (attempts >= room.players.length) {
         endGame(roomId);
         return;
@@ -189,6 +191,10 @@ function executeRingBell(roomId, playerId) {
     if (isCorrect) {
         room.lastSuccessTime = Date.now(); 
         
+        // 💡 [개선] 콤보 시스템 연동 및 봇 채팅 적용
+        ringer.combo = (ringer.combo || 0) + 1;
+        room.players.forEach(p => { if (p.id !== ringer.id) p.combo = 0; }); // 다른 플레이어 콤보 초기화
+
         let wonCards = [...room.tableCards];
         room.tableCards = [];
         room.players.forEach(p => {
@@ -197,12 +203,21 @@ function executeRingBell(roomId, playerId) {
         });
         
         ringer.hand.unshift(...wonCards);
-        io.to(roomId).emit('systemMessage', `🔔 딩동댕! ${ringer.name}님이 카드를 가져갑니다!`);
-        io.to(roomId).emit('cardsWon', { targetId: ringer.id, count: wonCards.length });
+        
+        let sysMsg = `🔔 딩동댕! ${ringer.name}님이 카드를 가져갑니다!`;
+        if (ringer.isBot) {
+            sysMsg = `${ringer.name}: ` + botWinMsgs[Math.floor(Math.random() * botWinMsgs.length)];
+        }
+        
+        io.to(roomId).emit('systemMessage', sysMsg);
+        io.to(roomId).emit('cardsWon', { targetId: ringer.id, count: wonCards.length, combo: ringer.combo });
         
         room.currentTurnIndex = room.players.indexOf(ringer);
         playCurrentTurn(roomId); 
     } else {
+        // 💡 [개선] 오답 시 콤보 초기화 및 봇 채팅 적용
+        ringer.combo = 0; 
+
         let penaltyCount = 0;
         room.players.forEach(p => {
             const targetIsOut = (p.hand.length === 0 && !p.activeCard);
@@ -212,7 +227,13 @@ function executeRingBell(roomId, playerId) {
                 io.to(roomId).emit('penaltyCardReceived', { targetId: p.id, count: 1 });
             }
         });
-        io.to(roomId).emit('systemMessage', `❌ 땡! ${ringer.name}님이 페널티를 받습니다. (-${penaltyCount}장)`);
+        
+        let sysMsg = `❌ 땡! ${ringer.name}님이 페널티를 받습니다. (-${penaltyCount}장)`;
+        if (ringer.isBot) {
+            sysMsg = `${ringer.name}: ` + botFailMsgs[Math.floor(Math.random() * botFailMsgs.length)];
+        }
+        
+        io.to(roomId).emit('systemMessage', sysMsg);
         io.to(roomId).emit('penaltyApplied', { targetId: ringer.id });
 
         const currentPlayer = room.players[room.currentTurnIndex];
@@ -235,14 +256,13 @@ function endGame(roomId) {
     }
 
     let winner = room.players.reduce((prev, current) => (prev.hand.length > current.hand.length) ? prev : current);
-    room.players.forEach(p => { p.hand = []; p.activeCard = null; p.isReady = p.isHost || p.isBot; });
+    room.players.forEach(p => { p.hand = []; p.activeCard = null; p.isReady = p.isHost || p.isBot; p.combo = 0; });
 
     io.to(roomId).emit('gameOver', winner.name);
     io.to(roomId).emit('updatePlayers', room.players);
     broadcastRoomList();
 }
 
-// 💡 유저 퇴장 로직을 통합하여 봇 예외 처리 및 진행 안정성 강화
 function handlePlayerLeave(socket, roomId) {
     if (!roomId || !rooms[roomId]) return;
     const room = rooms[roomId];
@@ -258,7 +278,6 @@ function handlePlayerLeave(socket, roomId) {
 
         const realPlayers = room.players.filter(p => !p.isBot);
 
-        // 남은 인원이 없거나 봇만 남았다면 즉시 방 삭제
         if (realPlayers.length === 0) {
             if (room.timerInterval) clearInterval(room.timerInterval);
             delete rooms[roomId]; 
@@ -277,7 +296,6 @@ function handlePlayerLeave(socket, roomId) {
             if (alivePlayers.length <= 1) {
                 endGame(roomId);
             } else {
-                // 게임 진행 중 남은 실제 플레이어가 있다면 턴 보정 후 이어나감
                 if (room.currentTurnIndex === pIdx) {
                     room.currentTurnIndex = room.currentTurnIndex % room.players.length;
                     playCurrentTurn(roomId);
@@ -304,7 +322,7 @@ io.on('connection', (socket) => {
         const roomId = 'room_' + Math.random().toString(36).substr(2, 6);
         rooms[roomId] = initRoom(data.roomName || `${safeNickname}의 테이블`);
         socket.leave('lobby'); socket.join(roomId); socket.roomId = roomId;
-        rooms[roomId].players.push({ id: socket.id, name: safeNickname, avatar: data.avatar, hand: [], activeCard: null, isBot: false, isHost: true, isReady: true });
+        rooms[roomId].players.push({ id: socket.id, name: safeNickname, avatar: data.avatar, hand: [], activeCard: null, isBot: false, isHost: true, isReady: true, combo: 0 });
         socket.emit('joinSuccess', { isHost: true, roomName: rooms[roomId].name });
         io.to(roomId).emit('updatePlayers', rooms[roomId].players);
         broadcastRoomList(); 
@@ -325,7 +343,7 @@ io.on('connection', (socket) => {
 
         const safeNickname = (data.nickname || '플레이어').trim().substring(0, 10);
         socket.leave('lobby'); socket.join(data.roomId); socket.roomId = data.roomId;
-        room.players.push({ id: socket.id, name: safeNickname, avatar: data.avatar, hand: [], activeCard: null, isBot: false, isHost: false, isReady: false });
+        room.players.push({ id: socket.id, name: safeNickname, avatar: data.avatar, hand: [], activeCard: null, isBot: false, isHost: false, isReady: false, combo: 0 });
         socket.emit('joinSuccess', { isHost: false, roomName: room.name });
         io.to(data.roomId).emit('updatePlayers', room.players);
         broadcastRoomList(); 
@@ -354,7 +372,7 @@ io.on('connection', (socket) => {
                 name: `할리 봇 Lv.${difficulty} (${room.botCounter++})`, 
                 avatar: botAvatars[Math.floor(Math.random() * botAvatars.length)], 
                 hand: [], activeCard: null, isBot: true, isHost: false, isReady: true,
-                difficulty: difficulty 
+                difficulty: difficulty, combo: 0 
             });
         }
         io.to(socket.roomId).emit('updatePlayers', room.players);
@@ -416,7 +434,7 @@ io.on('connection', (socket) => {
         if (!room) return;
         
         room.deck = shuffle(createDeck());
-        room.players.forEach(p => { p.hand = []; p.activeCard = null; });
+        room.players.forEach(p => { p.hand = []; p.activeCard = null; p.combo = 0; });
         let dealIndex = 0;
         while(room.deck.length > 0) {
             room.players[dealIndex].hand.push(room.deck.pop());
