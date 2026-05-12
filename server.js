@@ -21,7 +21,8 @@ function initRoom(roomName) {
         botCounter: 1, isGameRunning: false, tableCards: [],
         stateVersion: 0, turnId: 0,
         timeRemaining: 180, timerInterval: null,
-        maxPlayers: 6 // 💡 최대 인원 6명 고정
+        maxPlayers: 6,
+        lastSuccessTime: 0 // 💡 누군가 정답을 맞춘 시간을 기록
     };
 }
 
@@ -167,9 +168,21 @@ function executeRingBell(roomId, playerId) {
     if (isOut) return; 
 
     const isCorrect = checkBellCondition(room);
+    const hasActiveCards = room.players.some(p => p.activeCard !== null);
+
+    // 💡 1. 바닥에 카드가 아예 없을 때는 오발동이므로 무시 (페널티 없음)
+    if (!hasActiveCards) return;
+
+    // 💡 2. 누군가 정답을 맞춘 직후 1.5초 이내의 오답은 '네트워크 지연으로 늦게 누른 것'으로 간주하여 무시 (억울한 페널티 삭제)
+    if (!isCorrect && room.lastSuccessTime && (Date.now() - room.lastSuccessTime < 1500)) {
+        return;
+    }
+
     io.to(roomId).emit('actionSound', 'bell');
 
     if (isCorrect) {
+        room.lastSuccessTime = Date.now(); // 정답 시간 기록
+        
         let wonCards = [...room.tableCards];
         room.tableCards = [];
         room.players.forEach(p => {
@@ -184,6 +197,7 @@ function executeRingBell(roomId, playerId) {
         room.currentTurnIndex = room.players.indexOf(ringer);
         playCurrentTurn(roomId); 
     } else {
+        // 이 로직은 오직 '5개가 확실히 아닌 상황에서 능동적으로 잘못 친 사람'에게만 적용됩니다.
         let penaltyCount = 0;
         room.players.forEach(p => {
             const targetIsOut = (p.hand.length === 0 && !p.activeCard);
@@ -240,11 +254,10 @@ io.on('connection', (socket) => {
         const room = rooms[data.roomId];
         if (!room || room.isGameRunning) return socket.emit('joinError', '입장할 수 없습니다.');
         
-        // 💡 6명 정원 체크 및 봇 교체 로직
         if (room.players.length >= room.maxPlayers) {
             const botIndex = room.players.findIndex(p => p.isBot);
             if (botIndex !== -1 && !room.isGameRunning) {
-                room.players.splice(botIndex, 1); // 봇을 제거하고 자리 마련
+                room.players.splice(botIndex, 1); 
             } else {
                 return socket.emit('joinError', `방이 최대 인원(${room.maxPlayers}명)으로 꽉 찼습니다.`);
             }
@@ -271,7 +284,6 @@ io.on('connection', (socket) => {
         const room = rooms[socket.roomId];
         if (!room) return;
         
-        // 💡 현재 인원을 계산하여 남은 자리에만 봇을 추가
         const availableSlots = room.maxPlayers - room.players.length;
         const botsToAdd = Math.min(count, availableSlots);
         
@@ -343,7 +355,7 @@ io.on('connection', (socket) => {
         }
         
         room.tableCards = []; room.currentTurnIndex = 0; room.isGameRunning = true; 
-        room.stateVersion = 0; room.turnId = 0;
+        room.stateVersion = 0; room.turnId = 0; room.lastSuccessTime = 0;
         
         room.timeRemaining = 180;
         if (room.timerInterval) clearInterval(room.timerInterval);

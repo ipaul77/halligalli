@@ -316,19 +316,12 @@
             const hostControls = document.getElementById('host-controls');
             if (hostControls) hostControls.style.display = amIHost ? 'flex' : 'none';
             
-            const btnReady = document.getElementById('btn-ready');
-            if (btnReady) btnReady.style.display = amIHost ? 'none' : 'block';
-            
             showScreen('screen-room');
         });
 
+        // 💡 오작동하던 클라이언트 수동 변경 코드를 제거하고 서버 요청만 전달합니다.
         function toggleReady() { 
             socket.emit('toggleReady'); 
-            const btn = document.getElementById('btn-ready');
-            if (btn) {
-                btn.style.background = btn.style.background.includes('e74c3c') ? 'linear-gradient(to right, #f39c12, #d35400)' : '#e74c3c';
-                btn.textContent = btn.textContent === '준비하기' ? '준비 취소' : '준비하기';
-            }
         }
 
         function changeBotSettings(type, delta) {
@@ -356,13 +349,6 @@
 
         function backToRoom() {
             showScreen('screen-room');
-            if (!amIHost) {
-                const btn = document.getElementById('btn-ready');
-                if (btn) {
-                    btn.style.background = '#e74c3c';
-                    btn.textContent = '준비하기';
-                }
-            }
         }
 
         function leaveRoom() {
@@ -370,14 +356,16 @@
             amIHost = false;
             showScreen('screen-lobby');
             document.getElementById('host-controls').style.display = 'none';
-            document.getElementById('btn-ready').style.display = 'none';
+            const btnReady = document.getElementById('btn-ready');
+            if (btnReady) btnReady.style.display = 'none';
         }
 
         socket.on('hostPromoted', () => {
             amIHost = true;
             showToast("방장이 되었습니다!");
             document.getElementById('host-controls').style.display = 'flex';
-            document.getElementById('btn-ready').style.display = 'none';
+            const btnReady = document.getElementById('btn-ready');
+            if (btnReady) btnReady.style.display = 'none';
         });
 
         function kickPlayer(targetId) {
@@ -396,6 +384,23 @@
             const list = document.getElementById('player-list');
             if (!list) return;
             list.innerHTML = '';
+            
+            // 💡 서버에서 받아온 정보를 토대로 준비 버튼 상태를 완벽히 동기화합니다.
+            const me = players.find(p => p.id === socket.id);
+            if (me && !me.isHost) {
+                const btnReady = document.getElementById('btn-ready');
+                if (btnReady) {
+                    btnReady.style.display = 'block';
+                    if (me.isReady) {
+                        btnReady.style.background = '#e74c3c';
+                        btnReady.textContent = '준비 취소';
+                    } else {
+                        btnReady.style.background = 'linear-gradient(to right, #f39c12, #d35400)';
+                        btnReady.textContent = '준비하기';
+                    }
+                }
+            }
+
             players.forEach(p => {
                 let kickBtn = '';
                 if (amIHost && p.id !== socket.id) {
@@ -571,8 +576,6 @@
             return `<div class="fruit-grid">${layout}</div>`;
         }
 
-        // 💡 1명~5명의 상대방을 원형(Arc)으로 배치하기 위한 수학적 좌표 맵
-        // translate(-50%, -50%)를 적용하여 중심점 기준으로 정확하게 원형 곡선을 그립니다.
         const posMap = {
             1: [ {top:'20%', left:'50%', transform:'translate(-50%, -50%) scale(0.9)'} ],
             2: [ 
@@ -605,7 +608,7 @@
             
             if (btnFlip) {
                 btnFlip.disabled = !isMyTurn;
-                btnFlip.textContent = isMyTurn ? '👆 내 차례 (터치하여 열기)' : (state.myHandCount === 0 ? '카드가 없습니다' : '상대방 턴 대기중...');
+                btnFlip.textContent = isMyTurn ? '👆 내 차례 (터치하여 열기)' : (state.myHandCount === 0 ? '카드를 소진했습니다' : '상대방 턴 대기중...');
                 btnFlip.style.background = isMyTurn ? 'linear-gradient(to right, #f39c12, #d35400)' : '#34495e';
             }
 
@@ -616,7 +619,6 @@
             const opCount = ops.length;
             const positions = posMap[opCount] || [];
 
-            // 상대방 패널의 둥근 배치 적용
             for (let i = 0; i < 5; i++) {
                 const zoneEl = document.getElementById(`op-zone-${i}`);
                 if (!zoneEl) continue;
